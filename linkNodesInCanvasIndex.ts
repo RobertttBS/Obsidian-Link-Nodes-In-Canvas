@@ -163,7 +163,7 @@ export default class LinkNodesInCanvas extends Plugin {
 					removeEdge: (next: any) => {
 						return function (edge: any) {
 							const result = next.call(this, edge);
-							updateOriginalNode(this, edge);
+							// updateOriginalNode(this, edge);
 							return result;
 						};
 					}
@@ -184,7 +184,7 @@ export default class LinkNodesInCanvas extends Plugin {
 				deleteEdge: (next: any) => {
 					return function (edge: any) {
 						const result = next.call(this, edge);
-						updateOriginalNode(this, edge);
+						// updateOriginalNode(this, edge);
 						return result;
 					};
 				}
