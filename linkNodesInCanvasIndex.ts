@@ -97,12 +97,13 @@ export default class LinkNodesInCanvas extends Plugin {
 
 				const content = await this.app.vault.cachedRead(fromFile);
 				await this.app.vault.append(fromFile, `\n${link}`);
-			} else {
-				const fromNode = e.from.node;
-				fromNode.setText(`${fromNode.text}\n${link}`);
-
-				e.canvas.requestSave();
 			}
+			// else {
+			// 	const fromNode = e.from.node;
+			// 	fromNode.setText(`${fromNode.text}\n${link}`);
+
+			// 	e.canvas.requestSave();
+			// }
 		}, 1000);
 
 		const updateOriginalNode = async (canvas: any, edge: any) => {
