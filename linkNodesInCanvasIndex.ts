@@ -213,14 +213,35 @@ export default class LinkNodesInCanvas extends Plugin {
 			return t.join("");
 		};
 
+		// compute angle between two nodes
+		const angle = Math.atan2(node2.y - node1.y, node2.x - node1.x) * 180 / Math.PI;
+    
+		// determine the side of the node to connect
+		let fromSide: NodeSide;
+		let toSide: NodeSide;
+		
+		if (Math.abs(angle) <= 45) {
+			fromSide = 'right';
+			toSide = 'left';
+		} else if (angle > 45 && angle <= 135) {
+			fromSide = 'bottom';
+			toSide = 'top';
+		} else if (Math.abs(angle) > 135) {
+			fromSide = 'left';
+			toSide = 'right';
+		} else {
+			fromSide = 'top';
+			toSide = 'bottom';
+		}
+	
 		const edgeData: CanvasEdgeData = {
 			id: random(16),
-			fromSide: 'right',
+			fromSide,
 			fromNode: node1.id,
-			toSide: 'left',
+			toSide,
 			toNode: node2.id
 		};
-
+	
 		return edgeData;
 	}
 
