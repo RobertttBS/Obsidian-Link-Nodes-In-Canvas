@@ -96,7 +96,9 @@ export default class LinkNodesInCanvas extends Plugin {
 				if (!fromFile) return;
 
 				const content = await this.app.vault.cachedRead(fromFile);
-				await this.app.vault.append(fromFile, `\n${link}`);
+				if (!content.includes(link)) {
+					await this.app.vault.append(fromFile, `\n${link}`);
+				}
 			}
 			// else {
 			// 	const fromNode = e.from.node;
