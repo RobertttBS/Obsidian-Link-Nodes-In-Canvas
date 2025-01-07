@@ -533,15 +533,72 @@ class NodeSuggest extends EditorSuggest<AllCanvasNodeData> {
 
 	}
 
+	updateFrontmatter(fromFile: TFile, link: string) {
+		if (!fromFile) return;
+
+		new Notice(`into update frontmatter`);
+		this.app.vault.cachedRead(fromFile).then((content) => {
+			new Notice(`update frontmatter start`);
+			if (content.includes(link)) {
+				return;
+			}
+			const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
+			const match = content.match(frontmatterRegex);
+
+			let newContent;
+			if (match) { // with frontmatter
+				const frontmatter = match[1];
+				const relatedRegex = /related:\s*\[(.*)\]/;
+				const relatedMatch = frontmatter.match(relatedRegex);
+	
+				if (relatedMatch) {
+					// with related field
+					const relatedLinks = relatedMatch[1]
+						.split(',')
+						.map(s => s.trim())
+						.filter(s => s.length > 0);
+					if (!relatedLinks.includes(`"${link}"`)) {
+						relatedLinks.push(`"${link}"`);
+						const newFrontmatter = frontmatter.replace(
+							relatedRegex,
+							`related: [${relatedLinks.join(', ')}]`
+						);
+						newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
+					}
+				} else {
+					// without related field
+					const newFrontmatter = `${frontmatter}\nrelated: ["${link}"]`;
+					newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
+				}
+			} else {
+				// without frontmatter
+				newContent = `---\nrelated: ["${link}"]\n---\n\n${content}`;
+			}
+
+			new Notice(`New content: ${newContent}`);
+			if (newContent && newContent !== content) {
+				this.app.vault.modify(fromFile, newContent);
+			}
+		});
+	}
+
 	selectSuggestion(suggestion: AllCanvasNodeData, evt: MouseEvent | KeyboardEvent): void {
+		let fromFile;
+		let link;
 		if (this.context) {
+			// new Notice(`Start: ${JSON.stringify(this.context.start)}, End: ${JSON.stringify(this.context.end)}`);
+
 			const editor = (this.context.editor as Editor);
 			const updatedText = (evt.ctrlKey || evt.metaKey) && suggestion.type === 'file' ? `[[${suggestion.file}]]` : '';
+
+			fromFile = this.context.file;
+			link = updatedText;
+			
 			editor.replaceRange(
 				updatedText,
 				this.context.start,
 				this.end === 0 ? {
-					ch: this.context.end.ch + 2,
+					ch: this.context.end.ch + 2, // 吃掉 `}}`
 					line: this.context.end.line
 				} : this.context.end
 			);
@@ -555,7 +612,12 @@ class NodeSuggest extends EditorSuggest<AllCanvasNodeData> {
 
 			this.plugin.createEdgeBasedOnNodes(this.original, targetNode, this.canvas, side);
 
+			if (fromFile && link) {
+				this.updateFrontmatter(fromFile, link);
+			}
 			this.close();
+
+			new Notice(`Link created between nodes`);
 		}
 	}
 
