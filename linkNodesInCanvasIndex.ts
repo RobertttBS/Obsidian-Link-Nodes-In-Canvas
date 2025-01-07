@@ -96,8 +96,45 @@ export default class LinkNodesInCanvas extends Plugin {
 				if (!fromFile) return;
 
 				const content = await this.app.vault.cachedRead(fromFile);
-				if (!content.includes(link)) {
-					await this.app.vault.append(fromFile, `\n${link}`);
+				if (content.includes(link)) {
+					return
+				}
+
+				const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
+				const match = content.match(frontmatterRegex);
+
+				let newContent;
+				if (match) { // with frontmatter
+					const frontmatter = match[1];
+					const relatedRegex = /related:\s*\[(.*)\]/;
+					const relatedMatch = frontmatter.match(relatedRegex);
+		
+					if (relatedMatch) {
+						// with related field
+						const relatedLinks = relatedMatch[1]
+							.split(',')
+							.map(s => s.trim())
+							.filter(s => s.length > 0);
+						if (!relatedLinks.includes(`"${link}"`)) {
+							relatedLinks.push(`"${link}"`);
+							const newFrontmatter = frontmatter.replace(
+								relatedRegex,
+								`related: [${relatedLinks.join(', ')}]`
+							);
+							newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
+						}
+					} else {
+						// without related field
+						const newFrontmatter = `${frontmatter}\nrelated: ["${link}"]`;
+						newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
+					}
+				} else {
+					// without frontmatter
+					newContent = `---\nrelated: ["${link}"]\n---\n\n${content}`;
+				}
+		
+				if (newContent && newContent !== content) {
+					await this.app.vault.modify(fromFile, newContent);
 				}
 			}
 			// else {
@@ -121,14 +158,45 @@ export default class LinkNodesInCanvas extends Plugin {
 			if (fromNode?.filePath) {
 				const fromFile = this.app.vault.getFileByPath(fromNode.filePath);
 				if (!fromFile) return;
-				const content = await this.app.vault.read(fromFile);
-				const newContent = content.replaceAll(link, '');
-				await this.app.vault.modify(fromFile, newContent);
-			} else {
-				const fromNode = edge.from.node;
-				fromNode.setText((fromNode.text as string).replaceAll(link, ''));
 
-				canvas.requestSave();
+				const content = await this.app.vault.read(fromFile);
+
+				const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
+				const match = content.match(frontmatterRegex);
+
+				if (!match) return; // without frontmatter, return
+
+				const frontmatter = match[1];
+				const relatedRegex = /related:\s*\[(.*)\]/;
+				const relatedMatch = frontmatter.match(relatedRegex);
+
+				if (!relatedMatch) return;
+
+				const relatedLinks = relatedMatch[1]
+					.split(',')
+					.map(s => s.trim())
+					.filter(s => s.length > 0);
+		
+				const updatedLinks = relatedLinks.filter(l => l !== `"${link}"`);
+		
+				// update frontmatter
+				const newFrontmatter = frontmatter.replace(
+					relatedRegex,
+					`related: [${updatedLinks.join(', ')}]`
+				);
+
+				// update content
+				const newContent = content.replace(
+					frontmatterRegex,
+					`---\n${newFrontmatter}\n---`
+				);
+
+				await this.app.vault.modify(fromFile, newContent);
+			// } else {
+			// 	const fromNode = edge.from.node;
+			// 	fromNode.setText((fromNode.text as string).replaceAll(link, ''));
+
+			// 	canvas.requestSave();
 			}
 		};
 
@@ -166,7 +234,7 @@ export default class LinkNodesInCanvas extends Plugin {
 					removeEdge: (next: any) => {
 						return function (edge: any) {
 							const result = next.call(this, edge);
-							// updateOriginalNode(this, edge);
+							updateOriginalNode(this, edge);
 							return result;
 						};
 					}
@@ -187,7 +255,7 @@ export default class LinkNodesInCanvas extends Plugin {
 				deleteEdge: (next: any) => {
 					return function (edge: any) {
 						const result = next.call(this, edge);
-						// updateOriginalNode(this, edge);
+						updateOriginalNode(this, edge);
 						return result;
 					};
 				}
