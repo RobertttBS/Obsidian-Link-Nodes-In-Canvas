@@ -49,12 +49,23 @@ export default class LinkNodesInCanvas extends Plugin {
 							const allLinks = (Object.keys(resolvedLinks[node.filePath]) as Array<string>);
 							for (let i = 0; i < fileNodes.length; i++) {
 								// @ts-ignore
-								if (allLinks.includes(fileNodes[i].filePath)) {
-									if (node !== fileNodes[i]) {
+								if (allLinks.includes(fileNodes[i].filePath)) { 
+									if (node !== fileNodes[i]) { // fileNodes[i] is linked to node
 										const newEdge = this.createEdge(node, fileNodes[i]);
-										if (currentData.edges.some((edge: CanvasEdgeData) => {
-											return edge.fromNode === newEdge.fromNode && edge.toNode === newEdge.toNode;
-										})) continue;
+
+										// find if the edge already exists
+										const existingEdgeIndex = currentData.edges.findIndex((edge: CanvasEdgeData) => 
+											edge.fromNode === newEdge.fromNode && edge.toNode === newEdge.toNode
+										);
+
+										// if edge already exists, update the direction
+										if (existingEdgeIndex !== -1) {
+											const existingEdge = currentData.edges[existingEdgeIndex];
+											existingEdge.fromSide = newEdge.fromSide;
+											existingEdge.toSide = newEdge.toSide;
+											continue;
+										}
+
 										allEdgesData.push(newEdge);
 									}
 								}
