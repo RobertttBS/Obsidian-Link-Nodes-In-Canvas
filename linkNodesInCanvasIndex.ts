@@ -106,7 +106,7 @@ export default class LinkNodesInCanvas extends Plugin {
 				const fromFile = this.app.vault.getFileByPath(e.from.node.filePath);
 				if (!fromFile) return;
 
-				const content = await this.app.vault.cachedRead(fromFile);
+				const content = await this.app.vault.read(fromFile);
 				if (content.includes(link)) {
 					return
 				}
@@ -330,7 +330,7 @@ export default class LinkNodesInCanvas extends Plugin {
 				return reject(new Error("fromFile is undefined"));
 			}
 	
-			this.app.vault.cachedRead(fromFile)
+			this.app.vault.read(fromFile)
 				.then((content) => {
 					if (content.includes(link)) {
 						new Notice(`The link "${link}" is already included in the file's content.`);
