@@ -162,15 +162,17 @@ export default class LinkNodesInCanvas extends Plugin {
 
 			const toNode = edge.to.node;
 			const fromNode = edge.from.node;
+
 			const file = this.app.vault.getFileByPath(toNode.filePath);
 			if (!file) return;
+
 			const link = this.app.fileManager.generateMarkdownLink(file, edge.to.node.filePath);
 
 			if (fromNode?.filePath) {
 				const fromFile = this.app.vault.getFileByPath(fromNode.filePath);
 				if (!fromFile) return;
 
-				const content = await this.app.vault.read(fromFile);
+				const content = await this.app.vault.cachedRead(fromFile);
 
 				const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
 				const match = content.match(frontmatterRegex);
@@ -203,11 +205,6 @@ export default class LinkNodesInCanvas extends Plugin {
 				);
 
 				await this.app.vault.modify(fromFile, newContent);
-			// } else {
-			// 	const fromNode = edge.from.node;
-			// 	fromNode.setText((fromNode.text as string).replaceAll(link, ''));
-
-			// 	canvas.requestSave();
 			}
 		};
 
@@ -326,7 +323,75 @@ export default class LinkNodesInCanvas extends Plugin {
 		return edgeData;
 	}
 
-	createEdgeBasedOnNodes(node1: any, node2: any, canvas: any, side: NodeSide) {
+	updateFrontmatter(fromFile: TFile, link: string): Promise<void> {
+		return new Promise((resolve, reject) => {
+			if (!fromFile) {
+				new Notice(`Error: The provided file (fromFile) is undefined.`);
+				return reject(new Error("fromFile is undefined"));
+			}
+	
+			this.app.vault.cachedRead(fromFile)
+				.then((content) => {
+					if (content.includes(link)) {
+						new Notice(`The link "${link}" is already included in the file's content.`);
+						return resolve();
+					}
+	
+					const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
+					const match = content.match(frontmatterRegex);
+	
+					let newContent;
+					if (match) {
+						const frontmatter = match[1];
+						const relatedRegex = /related:\s*\[(.*)\]/;
+						const relatedMatch = frontmatter.match(relatedRegex);
+	
+						if (relatedMatch) {
+							const relatedLinks = relatedMatch[1]
+								.split(',')
+								.map((s) => s.trim())
+								.filter((s) => s.length > 0);
+	
+							if (!relatedLinks.includes(`"${link}"`)) {
+								relatedLinks.push(`"${link}"`);
+								const newFrontmatter = frontmatter.replace(
+									relatedRegex,
+									`related: [${relatedLinks.join(', ')}]`
+								);
+								newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
+							} else {
+								new Notice(`The link "${link}" is already present in the related field.`);
+							}
+						} else {
+							const newFrontmatter = `${frontmatter}\nrelated: ["${link}"]`;
+							newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
+						}
+					} else {
+						newContent = `---\nrelated: ["${link}"]\n---\n\n${content}`;
+					}
+	
+					if (newContent && newContent !== content) {
+						this.app.vault.modify(fromFile, newContent)
+							.then(() => {
+								resolve();
+							})
+							.catch((error) => {
+								new Notice(`Error: Failed to update the file "${fromFile.path}". Check console for details.`);
+								reject(error);
+							});
+					} else {
+						new Notice(`No changes were made to the file: ${fromFile.path}`);
+						resolve();
+					}
+				})
+				.catch((error) => {
+					new Notice(`Error: Failed to read the file "${fromFile.path}". Check console for details.`);
+					reject(error);
+				});
+		});
+	}
+
+	async createEdgeBasedOnNodes(node1: any, node2: any, canvas: any, side: NodeSide) {
 		const random = (e: number) => {
 			let t = [];
 			for (let n = 0; n < e; n++) {
@@ -394,10 +459,15 @@ export default class LinkNodesInCanvas extends Plugin {
 			...currentData.edges,
 			tempEdge,
 		];
+		let fromFile = this.app.vault.getFileByPath(node1.file.path);
+		
+		if (fromFile === null) return;
+
+		const link = this.app.fileManager.generateMarkdownLink(node2.file, node2.file.path);
+		await this.updateFrontmatter(fromFile, link);
 
 		canvas.setData(currentData);
 		canvas.requestSave();
-
 	}
 
 	onunload() {
@@ -532,94 +602,47 @@ class NodeSuggest extends EditorSuggest<AllCanvasNodeData> {
 		}
 
 	}
-
-	updateFrontmatter(fromFile: TFile, link: string) {
-		if (!fromFile) return;
-
-		new Notice(`into update frontmatter`);
-		this.app.vault.cachedRead(fromFile).then((content) => {
-			new Notice(`update frontmatter start`);
-			if (content.includes(link)) {
-				return;
-			}
-			const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
-			const match = content.match(frontmatterRegex);
-
-			let newContent;
-			if (match) { // with frontmatter
-				const frontmatter = match[1];
-				const relatedRegex = /related:\s*\[(.*)\]/;
-				const relatedMatch = frontmatter.match(relatedRegex);
 	
-				if (relatedMatch) {
-					// with related field
-					const relatedLinks = relatedMatch[1]
-						.split(',')
-						.map(s => s.trim())
-						.filter(s => s.length > 0);
-					if (!relatedLinks.includes(`"${link}"`)) {
-						relatedLinks.push(`"${link}"`);
-						const newFrontmatter = frontmatter.replace(
-							relatedRegex,
-							`related: [${relatedLinks.join(', ')}]`
-						);
-						newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
-					}
-				} else {
-					// without related field
-					const newFrontmatter = `${frontmatter}\nrelated: ["${link}"]`;
-					newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
-				}
-			} else {
-				// without frontmatter
-				newContent = `---\nrelated: ["${link}"]\n---\n\n${content}`;
-			}
-
-			new Notice(`New content: ${newContent}`);
-			if (newContent && newContent !== content) {
-				this.app.vault.modify(fromFile, newContent);
-			}
-		});
-	}
-
-	selectSuggestion(suggestion: AllCanvasNodeData, evt: MouseEvent | KeyboardEvent): void {
+	async selectSuggestion(suggestion: AllCanvasNodeData, evt: MouseEvent | KeyboardEvent): Promise<void> {
 		let fromFile;
 		let link;
+	
 		if (this.context) {
-			// new Notice(`Start: ${JSON.stringify(this.context.start)}, End: ${JSON.stringify(this.context.end)}`);
+			if (suggestion.type !== 'file') return;
+	
+			const file = this.app.vault.getFileByPath(suggestion.file);
+			if (file === null) return;
+	
+			const editor = this.context.editor as Editor;
+			let updatedText = suggestion.type === 'file'
+				? this.app.fileManager.generateMarkdownLink(file, this.canvas.view.file.path)
+				: '';
 
-			const editor = (this.context.editor as Editor);
-			const updatedText = (evt.ctrlKey || evt.metaKey) && suggestion.type === 'file' ? `[[${suggestion.file}]]` : '';
-
-			fromFile = this.context.file;
-			link = updatedText;
-			
+			updatedText = '';
 			editor.replaceRange(
 				updatedText,
 				this.context.start,
-				this.end === 0 ? {
-					ch: this.context.end.ch + 2, // 吃掉 `}}`
-					line: this.context.end.line
-				} : this.context.end
+				this.end === 0
+					? {
+						ch: this.context.end.ch + 2, // 吃掉 `}}`
+						line: this.context.end.line,
+					}
+					: this.context.end
 			);
+	
 			editor.setCursor({
 				line: this.context.end.line,
-				ch: this.context.end.ch + updatedText?.length - 2
+				ch: this.context.end.ch + updatedText?.length - 2,
 			});
-
+	
 			const targetNode = this.canvas.nodes.get(suggestion.id);
 			const side = this.getDirectionText(this.original.x, this.original.y, targetNode.x, targetNode.y);
-
-			this.plugin.createEdgeBasedOnNodes(this.original, targetNode, this.canvas, side);
-
-			if (fromFile && link) {
-				this.updateFrontmatter(fromFile, link);
-			}
+	
+			await this.plugin.createEdgeBasedOnNodes(this.original, targetNode, this.canvas, side);
 			this.close();
-
-			new Notice(`Link created between nodes`);
 		}
 	}
+	
 
 	getDirectionText(originalX: number, originalY: number, targetX: number, targetY: number): NodeSide {
 		const x = originalX - targetX;
