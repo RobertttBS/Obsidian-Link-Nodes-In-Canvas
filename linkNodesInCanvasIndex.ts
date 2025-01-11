@@ -13,14 +13,18 @@ import {
 import { AllCanvasNodeData, NodeSide } from "./canvas";
 import { CanvasEdgeData } from "obsidian/canvas";
 import { around } from "monkey-around";
+import { CanvasView } from './@types/Canvas'
 
 export default class LinkNodesInCanvas extends Plugin {
 	public patchedEdge: boolean;
 
 	async onload() {
+		console.log('Loading Link Nodes In Canvas');
 		this.registerCustomCommands();
-		this.registerCustomSuggester();
+		// this.registerCustomSuggester();
 		this.registerCanvasAutoLink();
+
+		// this.registerFileModifyHandler();
 	}
 
 	registerCustomCommands() {
@@ -92,6 +96,41 @@ export default class LinkNodesInCanvas extends Plugin {
 		this.registerEditorSuggest(new NodeSuggest(this));
 	}
 
+	// private registerFileModifyHandler() {
+	// 	this.registerEvent(
+	// 		this.app.vault.on('modify', async (file: TFile) => {
+	// 			const canvases = this.app.workspace.getLeavesOfType('canvas')
+	// 				.map(leaf => (leaf.view as CanvasView).canvas);
+	
+	// 			for (const canvas of canvases) {
+	// 				if (canvas === undefined) continue;
+					
+	// 				const currentData = canvas.getData();
+	// 				let needsUpdate = false;
+					
+	// 				currentData.nodes.forEach(nodeData => {
+	// 					if ((nodeData.type === 'file' && nodeData.file === file.path) || 
+	// 						(nodeData.type === 'file' && nodeData.portalToFile === file.path)) {
+							
+	// 						const node = canvas.nodes.get(nodeData.id);
+	// 						if (node) {
+	// 							node.isDirty = true;
+	// 							needsUpdate = true;
+	// 						}
+	// 					}
+	// 				});
+	
+	// 				if (needsUpdate) {
+	// 					canvas.setData(currentData);
+	
+	// 					canvas.history.current--;
+	// 					canvas.history.data.pop();
+	// 				}
+	// 			}
+	// 		})
+	// 	);
+	// }
+
 	registerCanvasAutoLink() {
 		const updateTargetNode = debounce(async (e: any) => {
 			if (!e.to.node.filePath) return;
@@ -106,54 +145,18 @@ export default class LinkNodesInCanvas extends Plugin {
 				const fromFile = this.app.vault.getFileByPath(e.from.node.filePath);
 				if (!fromFile) return;
 
-				const content = await this.app.vault.read(fromFile);
-				if (content.includes(link)) {
-					return
-				}
-
-				const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
-				const match = content.match(frontmatterRegex);
-
-				let newContent;
-				if (match) { // with frontmatter
-					const frontmatter = match[1];
-					const relatedRegex = /related:\s*\[(.*)\]/;
-					const relatedMatch = frontmatter.match(relatedRegex);
-		
-					if (relatedMatch) {
-						// with related field
-						const relatedLinks = relatedMatch[1]
-							.split(',')
-							.map(s => s.trim())
-							.filter(s => s.length > 0);
-						if (!relatedLinks.includes(`"${link}"`)) {
-							relatedLinks.push(`"${link}"`);
-							const newFrontmatter = frontmatter.replace(
-								relatedRegex,
-								`related: [${relatedLinks.join(', ')}]`
-							);
-							newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
-						}
-					} else {
-						// without related field
-						const newFrontmatter = `${frontmatter}\nrelated: ["${link}"]`;
-						newContent = content.replace(frontmatterRegex, `---\n${newFrontmatter}\n---`);
+				this.app.fileManager.processFrontMatter(fromFile, (frontmatter) => {
+					if (!frontmatter.related) {
+						frontmatter.related = [];
 					}
-				} else {
-					// without frontmatter
-					newContent = `---\nrelated: ["${link}"]\n---\n\n${content}`;
-				}
-		
-				if (newContent && newContent !== content) {
-					await this.app.vault.modify(fromFile, newContent);
-				}
+					if (!Array.isArray(frontmatter.related)) {
+						frontmatter.related = [frontmatter.related];
+					}
+					if (!frontmatter.related.includes(link)) {
+						frontmatter.related.push(link);
+					}
+				});
 			}
-			// else {
-			// 	const fromNode = e.from.node;
-			// 	fromNode.setText(`${fromNode.text}\n${link}`);
-
-			// 	e.canvas.requestSave();
-			// }
 		}, 1000);
 
 		const updateOriginalNode = async (canvas: any, edge: any) => {
@@ -172,39 +175,19 @@ export default class LinkNodesInCanvas extends Plugin {
 				const fromFile = this.app.vault.getFileByPath(fromNode.filePath);
 				if (!fromFile) return;
 
-				const content = await this.app.vault.cachedRead(fromFile);
-
-				const frontmatterRegex = /^---\n([\s\S]*?)\n---/;
-				const match = content.match(frontmatterRegex);
-
-				if (!match) return; // without frontmatter, return
-
-				const frontmatter = match[1];
-				const relatedRegex = /related:\s*\[(.*)\]/;
-				const relatedMatch = frontmatter.match(relatedRegex);
-
-				if (!relatedMatch) return;
-
-				const relatedLinks = relatedMatch[1]
-					.split(',')
-					.map(s => s.trim())
-					.filter(s => s.length > 0);
-		
-				const updatedLinks = relatedLinks.filter(l => l !== `"${link}"`);
-		
-				// update frontmatter
-				const newFrontmatter = frontmatter.replace(
-					relatedRegex,
-					`related: [${updatedLinks.join(', ')}]`
-				);
-
-				// update content
-				const newContent = content.replace(
-					frontmatterRegex,
-					`---\n${newFrontmatter}\n---`
-				);
-
-				await this.app.vault.modify(fromFile, newContent);
+				this.app.fileManager.processFrontMatter(fromFile, (frontmatter) => {
+					if (!frontmatter || !frontmatter.related) return;
+			
+					if (!Array.isArray(frontmatter.related)) {
+						frontmatter.related = [frontmatter.related];
+					}
+			
+					frontmatter.related = frontmatter.related.filter(l => l !== link);
+			
+					if (frontmatter.related.length === 0) {
+						delete frontmatter.related;
+					}
+				});
 			}
 		};
 
@@ -226,7 +209,6 @@ export default class LinkNodesInCanvas extends Plugin {
 
 		const patchCanvas = () => {
 			const canvasView = this.app.workspace.getLeavesOfType('canvas')[0]?.view;
-
 			if (!canvasView) return false;
 
 			// @ts-ignore
@@ -260,13 +242,13 @@ export default class LinkNodesInCanvas extends Plugin {
 						return result;
 					};
 				},
-				deleteEdge: (next: any) => {
-					return function (edge: any) {
-						const result = next.call(this, edge);
-						updateOriginalNode(this, edge);
-						return result;
-					};
-				}
+				// deleteEdge: (next: any) => {
+				// 	return function (edge: any) {
+				// 		const result = next.call(this, edge);
+				// 		updateOriginalNode(this, edge);
+				// 		return result;
+				// 	};
+				// }
 			});
 
 			console.log('Canvas patched');
@@ -274,11 +256,15 @@ export default class LinkNodesInCanvas extends Plugin {
 
 		this.app.workspace.onLayoutReady(() => {
 			if (!patchCanvas()) {
-				const evt = this.app.workspace.on("layout-change", () => {
-					patchCanvas() && this.app.workspace.offref(evt);
-				});
-				this.registerEvent(evt);
+				new Notice('Canvas auto-link is not enabled');
+				// const evt = this.app.workspace.on("layout-change", () => {
+				// 	patchCanvas() && this.app.workspace.offref(evt);
+				// 	new Notice('Layout-Change: Canvas auto-link enabled');
+				// });
+				// this.registerEvent(evt);
 			}
+
+			new Notice('Canvas auto-link enabled');
 		});
 	}
 
@@ -446,6 +432,35 @@ export default class LinkNodesInCanvas extends Plugin {
 			toNode: node2.id
 		};
 
+		// let fromFile = this.app.vault.getFileByPath(node1.filePath);
+		// let toFile = this.app.vault.getFileByPath(node2.filePath);
+		// if (!fromFile || !toFile) return;
+
+		// const toLink = this.app.fileManager.generateMarkdownLink(toFile, node2.filePath);
+
+		// let content = this.app.vault.read(fromFile);
+
+		// this.app.fileManager.processFrontMatter(fromFile, (frontmatter) => {
+		// 	if (!frontmatter.related) {
+		// 		frontmatter.related = [];
+		// 	}
+		// 	if (!Array.isArray(frontmatter.related)) {
+		// 		frontmatter.related = [frontmatter.related];
+		// 	}
+		// 	if (!frontmatter.related.includes(toLink)) {
+		// 		frontmatter.related.push(toLink);
+		// 	}
+		// });
+
+		// const portalNode = node1;
+		// const portalNodeData = portalNode.getData()
+		// portalNode.setData({
+		//   ...portalNodeData,
+		//   portalToFile: portalNodeData.file
+		// })
+		// canvas.setData(canvas.getData());
+
+
 		const currentData = canvas.getData();
 
 		if (currentData.edges.some((edge: CanvasEdgeData) => {
@@ -459,21 +474,17 @@ export default class LinkNodesInCanvas extends Plugin {
 			...currentData.edges,
 			tempEdge,
 		];
-		let fromFile = this.app.vault.getFileByPath(node1.file.path);
-		
-		if (fromFile === null) return;
-
-		const link = this.app.fileManager.generateMarkdownLink(node2.file, node2.file.path);
-		await this.updateFrontmatter(fromFile, link);
 
 		canvas.setData(currentData);
 		canvas.requestSave();
 	}
 
+
 	onunload() {
 
 	}
 }
+
 
 class NodeSuggest extends EditorSuggest<AllCanvasNodeData> {
 	private plugin: LinkNodesInCanvas;
@@ -602,23 +613,12 @@ class NodeSuggest extends EditorSuggest<AllCanvasNodeData> {
 		}
 
 	}
-	
-	async selectSuggestion(suggestion: AllCanvasNodeData, evt: MouseEvent | KeyboardEvent): Promise<void> {
-		let fromFile;
-		let link;
-	
-		if (this.context) {
-			if (suggestion.type !== 'file') return;
-	
-			const file = this.app.vault.getFileByPath(suggestion.file);
-			if (file === null) return;
-	
-			const editor = this.context.editor as Editor;
-			let updatedText = suggestion.type === 'file'
-				? this.app.fileManager.generateMarkdownLink(file, this.canvas.view.file.path)
-				: '';
 
-			updatedText = '';
+	selectSuggestion(suggestion: AllCanvasNodeData, evt: MouseEvent | KeyboardEvent): void {
+		if (this.context) {
+	
+			const editor = (this.context.editor as Editor);
+			const updatedText = (evt.ctrlKey || evt.metaKey) && suggestion.type === 'file' ? `[[${suggestion.file}]]` : '';
 			editor.replaceRange(
 				updatedText,
 				this.context.start,
@@ -638,9 +638,17 @@ class NodeSuggest extends EditorSuggest<AllCanvasNodeData> {
 			const targetNode = this.canvas.nodes.get(suggestion.id);
 			const side = this.getDirectionText(this.original.x, this.original.y, targetNode.x, targetNode.y);
 	
-			await this.plugin.createEdgeBasedOnNodes(this.original, targetNode, this.canvas, side);
+			this.plugin.createEdgeBasedOnNodes(this.original, targetNode, this.canvas, side);
 			this.close();
+
+
+			new Notice(`Closed`);
 		}
+
+		const targetNode = this.canvas.nodes.get(suggestion.id);
+		const side = this.getDirectionText(this.original.x, this.original.y, targetNode.x, targetNode.y);
+
+		this.plugin.createEdgeBasedOnNodes(this.original, targetNode, this.canvas, side);
 	}
 	
 
