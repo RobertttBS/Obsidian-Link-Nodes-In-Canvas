@@ -1,19 +1,11 @@
 import {
 	debounce,
-	Editor,
-	EditorPosition,
-	EditorSuggest,
-	EditorSuggestContext,
-	EditorSuggestTriggerInfo,
 	ItemView,
-	Notice,
-	Plugin, prepareFuzzySearch, setIcon,
-	TFile
+	Plugin,
 } from 'obsidian';
-import { AllCanvasNodeData, NodeSide } from "./canvas";
+import { NodeSide } from "./canvas";
 import { CanvasEdgeData } from "obsidian/canvas";
 import { around } from "monkey-around";
-import { CanvasView } from './@types/Canvas'
 
 export default class LinkNodesInCanvas extends Plugin {
 	public patchedEdge: boolean; // flag to check if edge is patched
