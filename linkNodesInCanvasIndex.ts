@@ -16,15 +16,13 @@ import { around } from "monkey-around";
 import { CanvasView } from './@types/Canvas'
 
 export default class LinkNodesInCanvas extends Plugin {
-	public patchedEdge: boolean;
+	public patchedEdge: boolean; // flag to check if edge is patched
 
 	async onload() {
 		console.log('Loading Link Nodes In Canvas');
 		this.registerCustomCommands();
 		// this.registerCustomSuggester();
 		this.registerCanvasAutoLink();
-
-		// this.registerFileModifyHandler();
 	}
 
 	registerCustomCommands() {
@@ -95,41 +93,6 @@ export default class LinkNodesInCanvas extends Plugin {
 	registerCustomSuggester() {
 		this.registerEditorSuggest(new NodeSuggest(this));
 	}
-
-	// private registerFileModifyHandler() {
-	// 	this.registerEvent(
-	// 		this.app.vault.on('modify', async (file: TFile) => {
-	// 			const canvases = this.app.workspace.getLeavesOfType('canvas')
-	// 				.map(leaf => (leaf.view as CanvasView).canvas);
-	
-	// 			for (const canvas of canvases) {
-	// 				if (canvas === undefined) continue;
-					
-	// 				const currentData = canvas.getData();
-	// 				let needsUpdate = false;
-					
-	// 				currentData.nodes.forEach(nodeData => {
-	// 					if ((nodeData.type === 'file' && nodeData.file === file.path) || 
-	// 						(nodeData.type === 'file' && nodeData.portalToFile === file.path)) {
-							
-	// 						const node = canvas.nodes.get(nodeData.id);
-	// 						if (node) {
-	// 							node.isDirty = true;
-	// 							needsUpdate = true;
-	// 						}
-	// 					}
-	// 				});
-	
-	// 				if (needsUpdate) {
-	// 					canvas.setData(currentData);
-	
-	// 					canvas.history.current--;
-	// 					canvas.history.data.pop();
-	// 				}
-	// 			}
-	// 		})
-	// 	);
-	// }
 
 	registerCanvasAutoLink() {
 		const updateTargetNode = debounce(async (e: any) => {
@@ -216,21 +179,22 @@ export default class LinkNodesInCanvas extends Plugin {
 			if (!canvas) return false;
 
 			const edge = canvas.edges.values().next().value;
-			if (edge) {
+			if (edge) { // if edge exists, patch it.
 				this.patchedEdge = true;
 				selfPatched(edge);
-
-				around(canvas.constructor.prototype, {
-					removeEdge: (next: any) => {
-						return function (edge: any) {
-							const result = next.call(this, edge);
-							updateOriginalNode(this, edge);
-							return result;
-						};
-					}
-				});
-				return true;
 			}
+
+			around(canvas.constructor.prototype, {
+				removeEdge: (next: any) => {
+					return function (edge: any) {
+						const result = next.call(this, edge);
+						if (this.isClearing !== true) {
+							updateOriginalNode(this, edge);
+						}
+						return result;
+					};
+				}
+			});
 
 			around(canvas.constructor.prototype, {
 				addEdge: (next: any) => {
@@ -242,29 +206,29 @@ export default class LinkNodesInCanvas extends Plugin {
 						return result;
 					};
 				},
-				// deleteEdge: (next: any) => {
-				// 	return function (edge: any) {
-				// 		const result = next.call(this, edge);
-				// 		updateOriginalNode(this, edge);
-				// 		return result;
-				// 	};
-				// }
 			});
 
-			console.log('Canvas patched');
+			around(canvas.constructor.prototype, {
+				clear: (next: any) => {
+					return function () {
+						this.isClearing = true;
+						const result = next.call(this);
+						this.isClearing = false;
+						return result;
+					};
+				},
+			});
+
+			console.log('patch canvas success');
 		};
 
 		this.app.workspace.onLayoutReady(() => {
 			if (!patchCanvas()) {
-				new Notice('Canvas auto-link is not enabled');
-				// const evt = this.app.workspace.on("layout-change", () => {
-				// 	patchCanvas() && this.app.workspace.offref(evt);
-				// 	new Notice('Layout-Change: Canvas auto-link enabled');
-				// });
-				// this.registerEvent(evt);
+				const evt = this.app.workspace.on("layout-change", () => {
+					patchCanvas() && this.app.workspace.offref(evt);
+				});
+				this.registerEvent(evt);
 			}
-
-			new Notice('Canvas auto-link enabled');
 		});
 	}
 
